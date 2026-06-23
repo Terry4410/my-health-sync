@@ -747,7 +747,7 @@
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" className="p-2 border rounded-xl font-bold bg-white text-xs" value={pendingEntry?.date || selectedDate} onChange={e => setPendingEntry({ ...pendingEntry, date: e.target.value })} />
-                    <input type="time" className="p-2 border rounded-xl font-bold bg-white text-xs" value={pendingEntry?.time || "12:00"} onChange={e => setPendingEntry({ ...pendingEntry, time: e.target.value })} />
+                    <input type="time" className="p-2 border rounded-xl font-bold bg-white text-xs" value={pendingEntry?.time || "12:00"} onChange={e => setPendingEntry({ ...tempProfile, time: e.target.value })} />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 mb-1">分類餐別</label>
