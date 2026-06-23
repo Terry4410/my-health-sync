@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>全方位生活與健康管理系統</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+    
+    :root {
+      --ghibli-sky: #87CEEB;
+      --ghibli-forest: #4A7C59;
+      --ghibli-leaf: #A7C957;
+      --ghibli-cream: #FDFCF0;
+    }
+
+    body {
+      font-family: 'Inter', 'Noto Sans TC', sans-serif;
+      background-color: var(--ghibli-cream);
+      color: #3E2723;
+      -webkit-tap-highlight-color: transparent;
+      background-image: radial-gradient(rgba(74, 124, 89, 0.05) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    input, button, select, textarea { outline: none; }
+    input[type="date"], input[type="time"] { -webkit-appearance: auto; appearance: auto; background: #fff; font-family: inherit; }
+    input, textarea { font-size: 16px !important; }
+
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    
+    .std-card {
+      background: rgba(255, 255, 255, 0.95);
+      border: 2px solid #E9EED9;
+      border-radius: 24px;
+      box-shadow: 0 8px 0px rgba(74, 124, 89, 0.04);
+    }
+
+    .meal-btn-active { background-color: var(--ghibli-forest); color: white; border-color: var(--ghibli-forest); }
+    .meal-btn-inactive { background-color: white; color: #64748b; border-color: #e2e8f0; }
+    
+    .health-input { background-color: #fffbeb; border: 2px solid #fef3c7; color: var(--ghibli-forest); font-weight: 700; }
+    .health-input:focus { border-color: var(--ghibli-forest); background-color: white; }
+    .health-input.warning { color: #ef4444; border-color: #fecaca; background-color: #fef2f2; }
+
+    /* 底部浮動導航 */
+    .floating-nav-wrap {
+      position: fixed; left: 0; right: 0; bottom: 18px; z-index: 50;
+      display: flex; justify-content: center; padding: 0 18px; pointer-events: none;
+    }
+    .floating-nav {
+      pointer-events: auto; width: min(600px, 100%);
+      background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+      border-radius: 26px; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+      border: 2px solid #E9EED9; height: 80px;
+      display: grid; grid-template-columns: 1fr 1fr 80px 1fr 1fr; align-items: center; padding: 10px 12px; position: relative;
+    }
+    .floating-center-btn {
+      position: absolute; left: 50%; transform: translateX(-50%); top: -24px;
+      width: 72px; height: 72px; border-radius: 999px; background: #e6a23a;
+      box-shadow: 0 12px 24px rgba(230, 162, 58, 0.35); border: 6px solid var(--ghibli-cream);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; font-weight: 800; font-size: 11px; cursor: pointer; }
+    .nav-muted { color: #cbd5e1; }
+    .nav-active { color: var(--ghibli-forest); }
+
+    .range-pill { padding: 6px 12px; border-radius: 999px; font-weight: 900; font-size: 11px; border: 2px solid #E9EED9; background: white; color: #94a3b8; }
+    .range-pill.active { background: var(--ghibli-forest); border-color: var(--ghibli-forest); color: white; }
+    
+    .status-check { width: 28px; height: 28px; border: 2px solid #CBD5E1; border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: white; }
+    .status-check.active { background: var(--ghibli-forest); border-color: var(--ghibli-forest); }
+    .drag-handle { cursor: grab; }
+    .drag-handle:active { cursor: grabbing; }
+    .img-preview { width: 64px; height: 64px; object-fit: cover; border-radius: 12px; border: 2px solid #E9EED9; }
+    .img-preview-large { max-width: 100%; max-height: 200px; object-fit: contain; border-radius: 16px; border: 2px solid #E9EED9; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // --- Firebase & API 設定 ---
+    const API_PROXY_URL = "/api/gemini";
+    const firebaseConfig = {
+      apiKey: "AIzaSyDcNgcQWZTg2UijNW7LS4AnC6XQqjIaNVM", 
+      authDomain: "ghibli-list.firebaseapp.com",
+      projectId: "ghibli-list",
+      storageBucket: "ghibli-list.firebasestorage.app",
+      messagingSenderId: "730434760352",
+      appId: "1:730434760352:web:23190ab321a6261905e3c5"
+    };
+    const appId = "ghibli-pro-app";
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // --- 元件：全域 Lucide 圖示 ---
+    const Icon = ({ name, size = 18, className = "", onClick }) => {
+      const containerRef = useRef(null);
+      useEffect(() => {
+        if (!window.lucide || !containerRef.current) return;
+        containerRef.current.innerHTML = "";
+        const i = document.createElement("i");
+        i.setAttribute("data-lucide", name);
+        containerRef.current.appendChild(i);
+        window.lucide.createIcons({
+          root: containerRef.current,
+          attrs: { width: size, height: size, class: className }
+        });
+      }, [name, size, className]);
+      return <span ref={containerRef} onClick={onClick} className="inline-flex items-center" style={{ cursor: onClick ? 'pointer' : 'default' }} />;
+    };
+
+    // --- 常數設定 ---
+    const MEAL_TYPES = [
+      { id: "breakfast", label: "早餐" }, { id: "lunch", label: "午餐" },
+      { id: "dinner", label: "晚餐" }, { id: "snack", label: "點心" }
+    ];
+    const HEALTH_METRICS_CONFIG = [
+      { key: "systolic", label: "收縮壓", unit: "mmHg" },
+      { key: "diastolic", label: "舒張壓", unit: "mmHg" },
+      { key: "fastingSugar", label: "空腹血糖", unit: "mg/dL" },
+      { key: "hba1c", label: "糖化血色素", unit: "%" },
+      { key: "waist", label: "腰圍", unit: "cm" }
+    ];
+    const ACTIVITY_LEVELS = [
+      { id: "1.2", label: "久坐 (幾乎不運動)" }, { id: "1.375", label: "輕度 (每週 1-3 天)" },
+      { id: "1.55", label: "中度 (每週 3-5 天)" }, { id: "1.725", label: "高度 (每週 6-7 天)" }
+    ];
+
+    // --- 日期工具功能 ---
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const dateToISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+    // ==========================================================
+    // 主程式元件
+    // ==========================================================
+    const App = () => {
+      const [activeTab, setActiveTab] = useState("list"); // list, analytics, diet, profile
+      const [selectedDate, setSelectedDate] = useState(dateToISO(new Date()));
+
+      // --- 狀態定義：清單與記帳 ---
+      const [tasks, setTasks] = useState([]);
+      const [categories, setCategories] = useState([]);
+      const [expenseItems, setExpenseItems] = useState([]);
+      const [members, setMembers] = useState([{ id: 'm1', name: 'Terry' }, { id: 'm2', name: 'Eric' }]);
+      const [expandedHistory, setExpandedHistory] = useState({});
+      
+      // 表單與過濾
+      const [taskText, setTaskText] = useState('');
+      const [owners, setOwners] = useState(['Terry']);
+      const [category, setCategory] = useState('日常');
+      const [note, setNote] = useState('');
+      const [startDate, setStartDate] = useState('');
+      const [images, setImages] = useState([]);
+      const [editingId, setEditingId] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [expenseModalTask, setExpenseModalTask] = useState(null);
+      const [modalExpenses, setModalExpenses] = useState([]);
+
+      // --- 狀態定義：飲食與健康 ---
+      const [dailyLog, setDailyLog] = useState(() => JSON.parse(localStorage.getItem("terry_food_log")) || []);
+      const [showDietModal, setShowDietModal] = useState(false);
+      const [showTextModal, setShowTextModal] = useState(false);
+      const [textInput, setTextInput] = useState("");
+      const [isAnalyzing, setIsAnalyzing] = useState(false);
+      const [pendingEntry, setPendingEntry] = useState(null);
+      const [dietModalMode, setDietModalMode] = useState("add");
+      const [aiAdvice, setAiAdvice] = useState("");
+      const [isGeneratingAdvice, setIsGeneratingAdvice] = useState(false);
+
+      const [userProfile, setUserProfile] = useState(() => {
+        const saved = JSON.parse(localStorage.getItem("terry_profile"));
+        return saved || { name: "Terry", gender: "male", age: 30, weight: 70, height: 175, activity: "1.375", healthData: {} };
+      });
+      const [tempProfile, setTempProfile] = useState(userProfile);
+      const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+      const chartRefs = useRef({ trend: null, cat: null });
+
+      // --- 同步 LocalStorage ---
+      useEffect(() => { localStorage.setItem("terry_food_log", JSON.stringify(dailyLog)); }, [dailyLog]);
+      useEffect(() => { localStorage.setItem("terry_profile", JSON.stringify(userProfile)); }, [userProfile]);
+
+      // --- Firebase 監聽資料 ---
+      useEffect(() => {
+        firebase.auth().signInAnonymously().catch(err => console.log(err));
+        const path = db.collection('artifacts').doc(appId).collection('public').doc('data');
+        
+        const unsubTasks = path.collection('tasks').onSnapshot(snap => {
+          setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        const unsubCats = path.collection('categories').onSnapshot(snap => {
+          let d = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (d.length === 0) {
+            ['日常', '學習', '美食', '旅遊', '健康'].forEach((name, i) => path.collection('categories').add({ name, order: i }));
+          } else {
+            setCategories(d.sort((a,b) => (a.order || 0) - (b.order || 0)));
+          }
+        });
+        const unsubExpItems = path.collection('expenseItems').onSnapshot(snap => {
+          let d = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (d.length === 0) {
+            ['交通', '住宿', '門票', '餐費', '購物'].forEach((name, i) => path.collection('expenseItems').add({ name, order: i }));
+          } else {
+            setExpenseItems(d.sort((a,b) => (a.order || 0) - (b.order || 0)));
+          }
+        });
+
+        return () => { unsubTasks(); unsubCats(); unsubExpItems(); };
+      }, []);
+
+      // --- 記帳統計渲染 ---
+      useEffect(() => {
+        if (activeTab !== 'analytics' || tasks.length === 0) return;
+        const timer = setTimeout(() => {
+          if (chartRefs.current.trend) chartRefs.current.trend.destroy();
+          if (chartRefs.current.cat) chartRefs.current.cat.destroy();
+
+          const trendMap = {};
+          const catMap = {};
+          tasks.forEach(t => {
+            const tTotal = (t.expenses || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+            catMap[t.category] = (catMap[t.category] || 0) + tTotal;
+            (t.expenses || []).forEach(e => {
+              if (e.date) {
+                const k = e.date.substring(0, 7);
+                trendMap[k] = (trendMap[k] || 0) + parseFloat(e.amount || 0);
+              }
+            });
+          });
+
+          const trendCtx = document.getElementById('trendChart')?.getContext('2d');
+          if (trendCtx) {
+            chartRefs.current.trend = new Chart(trendCtx, {
+              type: 'bar',
+              data: { labels: Object.keys(trendMap).sort(), datasets: [{ data: Object.values(trendMap), backgroundColor: '#4A7C59', borderRadius: 6 }] },
+              options: { plugins: { legend: { display: false } } }
+            });
+          }
+
+          const catCtx = document.getElementById('catChart')?.getContext('2d');
+          if (catCtx) {
+            chartRefs.current.cat = new Chart(catCtx, {
+              type: 'doughnut',
+              data: { labels: Object.keys(catMap), datasets: [{ data: Object.values(catMap), backgroundColor: ['#4A7C59', '#A7C957', '#FFB74D', '#F4A261', '#E76F51'] }] },
+              options: { maintainAspectRatio: false }
+            });
+          }
+        }, 150);
+        return () => clearTimeout(timer);
+      }, [activeTab, tasks]);
+
+      // --- 計算 BMR / TDEE 與今日飲食卡路里 ---
+      const { bmr, tdee } = useMemo(() => {
+        let base = 10 * Number(userProfile.weight) + 6.25 * Number(userProfile.height) - 5 * Number(userProfile.age);
+        base = userProfile.gender === "male" ? base + 5 : base - 161;
+        return { bmr: Math.round(base), tdee: Math.round(base * parseFloat(userProfile.activity || "1.2")) };
+      }, [userProfile]);
+
+      const dayIntake = useMemo(() => {
+        return dailyLog.filter(i => i.date === selectedDate).reduce((sum, i) => sum + (i.calories || 0), 0);
+      }, [dailyLog, selectedDate]);
+
+      // 健檢指標常規判定
+      const isAbnormal = (key, value) => {
+        if (!value) return false;
+        const val = parseFloat(value);
+        if (key === "systolic") return val > 120 || val < 90;
+        if (key === "diastolic") return val > 80 || val < 60;
+        if (key === "fastingSugar") return val > 100 || val < 70;
+        return false;
+      };
+
+      // --- 拍照辨識核心處理 (AI) ---
+      const handleCapture = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setIsAnalyzing(true);
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+          try {
+            const base64Data = evt.target.result.split(",")[1];
+            const prompt = `請分析這張食物照片，估算總熱量、重量。回傳純 JSON：{ "foodName": "食物名稱", "weight_g": 數字, "calories": 數字, "suggestedMealType": "breakfast/lunch/dinner/snack", "healthAdvice": "建議內容" }`;
+            const res = await fetch(API_PROXY_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode: "image", prompt, imageBase64: base64Data, mimeType: file.type || "image/jpeg" })
+            });
+            const data = await res.json();
+            let text = String(data.text || "").replace(/```json|```/g, "").trim();
+            const analysis = JSON.parse(text);
+            
+            setPendingEntry({
+              ...analysis,
+              date: selectedDate,
+              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+              mealType: analysis.suggestedMealType || "snack"
+            });
+            setDietModalMode("add");
+            setShowDietModal(true);
+          } catch (err) {
+            alert("分析失敗: " + err.message);
+          } finally {
+            setIsAnalyzing(false);
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+
+      // --- 文字飲食快記 (AI) ---
+      const handleTextAnalysis = async () => {
+        if (!textInput.trim()) return;
+        setIsAnalyzing(true);
+        try {
+          const prompt = `分析饮食描述："${textInput}"，回傳純 JSON：{ "foodName": "食物名稱", "weight_g": 數字, "calories": 數字, "suggestedMealType": "breakfast/lunch/dinner/snack", "healthAdvice": "簡評" }`;
+          const res = await fetch(API_PROXY_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "text", prompt })
+          });
+          const data = await res.json();
+          let text = String(data.text || "").replace(/```json|```/g, "").trim();
+          const parsed = JSON.parse(text);
+
+          setPendingEntry({
+            ...parsed,
+            date: selectedDate,
+            time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }),
+            mealType: parsed.suggestedMealType || "snack"
+          });
+          setShowTextModal(false);
+          setTextInput("");
+          setDietModalMode("add");
+          setShowDietModal(true);
+        } catch (err) {
+          alert("分析失敗: " + err.message);
+        } finally {
+          setIsAnalyzing(false);
+        }
+      };
+
+      // 一鍵生成專家指南
+      const generateAdvice = async () => {
+        setIsGeneratingAdvice(true);
+        try {
+          const prompt = `今日指標：TDEE ${tdee}卡路里，已攝取 ${dayIntake}卡路里。請給予精準的今日健康指南(100字內)。`;
+          const res = await fetch(API_PROXY_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "text", prompt })
+          });
+          const data = await res.json();
+          setAiAdvice(data.text || "無法生成建議。");
+        } catch (err) {
+          setAiAdvice("連線異常...");
+        } finally {
+          setIsGeneratingAdvice(false);
+        }
+      };
+
+      // --- 儲存事項表單 ---
+      const handleTaskSubmit = async (e) => {
+        e.preventDefault();
+        if (!taskText.trim()) return;
+        const data = { text: taskText.trim(), owners, category, note, startDate, images, updatedAt: new Date().toISOString() };
+        const ref = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('tasks');
+        if (editingId) {
+          await ref.doc(editingId).update(data);
+        } else {
+          await ref.add({ ...data, completed: false, order: tasks.length, createdAt: new Date().toISOString() });
+        }
+        setShowAddModal(false);
+        setTaskText(''); setNote(''); setStartDate(''); setImages([]); setEditingId(null);
+      };
+
+      // --- 儲存卡路里紀錄 ---
+      const saveDietEntry = () => {
+        if (dietModalMode === "edit") {
+          setDailyLog(prev => prev.map(i => i.id === pendingEntry.id ? pendingEntry : i));
+        } else {
+          setDailyLog(prev => [{ ...pendingEntry, id: Date.now() }, ...prev]);
+        }
+        setShowDietModal(false);
+        setPendingEntry(null);
+      };
+
+      // 拖曳排序邏輯
+      const handleDragStart = (e, idx) => { e.dataTransfer.setData("dragIdx", idx); };
+      const handleDrop = async (e, dropIdx) => {
+        const dragIdx = parseInt(e.dataTransfer.getData("dragIdx"));
+        if (dragIdx === dropIdx) return;
+        const list = [...tasks];
+        const [moved] = list.splice(dragIdx, 1);
+        list.splice(dropIdx, 0, moved);
+        const batch = db.batch();
+        list.forEach((item, idx) => {
+          const ref = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('tasks').doc(item.id);
+          batch.update(ref, { order: idx });
+        });
+        await batch.commit();
+      };
+
+      return (
+        <div className="min-h-screen pb-32">
+          {/* 上方導覽頁首 */}
+          <header className="bg-white/80 border-b-2 border-[#E9EED9] px-6 py-4 flex justify-between items-center sticky top-0 z-30 backdrop-blur-md">
+            <h1 className="text-lg font-black text-[#4A7C59] flex items-center gap-2">
+              <Icon name="leaf" size={22} className="text-[#A7C957]" /> Life & Health Sync
+            </h1>
+            <input type="date" className="border rounded-full px-3 py-1 text-xs font-bold" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
+          </header>
+
+          <main className="p-5 max-w-xl mx-auto">
+            
+            {/* ==================== 頁籤 1: 清單紀錄 ==================== */}
+            {activeTab === "list" && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-black text-slate-700">📋 待辦事項與清單</span>
+                  <button onClick={() => setShowAddModal(true)} className="bg-[#4A7C59] text-white px-4 py-2 rounded-full text-xs font-bold shadow-md">+ 新增事項</button>
+                </div>
+
+                {tasks.map((t, idx) => {
+                  const isExpanded = expandedHistory[t.id];
+                  const totalExp = (t.expenses || []).reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+                  return (
+                    <div key={t.id} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, idx)} className={`std-card p-4 flex flex-col ${t.completed ? 'opacity-60' : ''}`}>
+                      <div className="flex items-start gap-3">
+                        <div draggable onDragStart={(e) => handleDragStart(e, idx)} className="drag-handle text-slate-300 pt-1">
+                          <Icon name="grip-vertical" size={16} />
+                        </div>
+                        <div onClick={() => db.collection('artifacts').doc(appId).collection('public').doc('data').collection('tasks').doc(t.id).update({ completed: !t.completed })}
+                             className={`status-check shrink-0 ${t.completed ? 'active' : ''}`}>
+                          <Icon name="check" size={12} className="text-white" />
+                        </div>
+                        <div className="flex-grow cursor-pointer" onClick={() => setExpandedHistory({ ...expandedHistory, [t.id]: !isExpanded })}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-black text-slate-800 text-base">{t.text}</h3>
+                            <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded-full text-slate-400 font-bold">{t.category}</span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-1">{t.startDate} {totalExp > 0 && `• 費用: $${totalExp.toLocaleString()}`}</p>
+                        </div>
+                        <Icon name={isExpanded ? "chevron-up" : "chevron-down"} size={16} className="text-slate-300 mt-1" />
+                      </div>
+
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-slate-100 space-y-3 text-xs">
+                          {t.note && <div className="bg-[#FDFCF0] p-3 rounded-xl border text-slate-600 whitespace-pre-line">{t.note}</div>}
+                          {t.expenses && t.expenses.length > 0 && (
+                            <div className="bg-amber-50/50 p-3 rounded-xl border border-amber-100">
+                              <p className="font-black text-amber-700 mb-1">費用明細</p>
+                              {t.expenses.map((e, i) => (
+                                <div key={i} className="flex justify-between py-1 border-b border-white last:border-0 text-slate-500">
+                                  <span>{e.date} - {e.item} ({e.desc})</span>
+                                  <span className="font-bold">${parseFloat(e.amount).toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => { setExpenseModalTask(t); setModalExpenses(t.expenses || []); }} className="px-3 py-1.5 bg-amber-50 text-amber-600 font-bold rounded-xl border border-amber-200">💰 費用</button>
+                            <button onClick={() => { setTaskText(t.text); setCategory(t.category); setNote(t.note || ''); setStartDate(t.startDate || ''); setEditingId(t.id); setShowAddModal(true); }} className="px-3 py-1.5 bg-slate-100 text-slate-600 font-bold rounded-xl border">修改</button>
+                            <button onClick={() => confirm("確定刪除事項？") && db.collection('artifacts').doc(appId).collection('public').doc('data').collection('tasks').doc(t.id).delete()} className="px-3 py-1.5 bg-red-50 text-red-500 font-bold rounded-xl border border-red-100">刪除</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ==================== 頁籤 2: 記帳統計圖表 ==================== */}
+            {activeTab === "analytics" && (
+              <div className="space-y-6 animate-fade-in">
+                <h2 className="text-sm font-black text-slate-700">📊 生活開銷與記帳統計</h2>
+                <div className="std-card p-5">
+                  <h3 className="text-xs font-black mb-3 text-slate-400 uppercase tracking-wider">月度支出趨勢</h3>
+                  <div className="h-44"><canvas id="trendChart"></canvas></div>
+                </div>
+                <div className="std-card p-5">
+                  <h3 className="text-xs font-black mb-3 text-slate-400 uppercase tracking-wider">類別分佈佔比</h3>
+                  <div className="h-44 relative"><canvas id="catChart"></canvas></div>
+                </div>
+              </div>
+            )}
+
+            {/* ==================== 頁籤 3: 飲食與卡路里 ==================== */}
+            {activeTab === "diet" && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="std-card p-5">
+                  <div className="flex justify-between items-end mb-4">
+                    <div>
+                      <p className="text-xs font-bold text-slate-400">今日攝取卡路里</p>
+                      <p className="text-4xl font-black text-slate-800">{dayIntake} <span className="text-sm text-slate-400">/ {tdee} kcal</span></p>
+                    </div>
+                    <div className={`px-3 py-1 rounded-full text-xs font-bold ${dayIntake > tdee ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-600'}`}>
+                      {dayIntake > tdee ? "⚠ 熱量盈餘" : "✔ 良好"}
+                    </div>
+                  </div>
+
+                  {/* 簡易動態進度條 */}
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden mb-4">
+                    <div className="bg-[#4A7C59] h-full transition-all duration-300" style={{ width: `${Math.min((dayIntake / tdee) * 100, 100)}%` }}></div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => { setPendingEntry({ foodName: "", calories: "", weight_g: "", date: selectedDate, time: "12:00", mealType: "snack" }); setDietModalMode("add"); setShowDietModal(true); }} className="flex-1 py-2.5 bg-[#4A7C59] text-white rounded-xl font-bold shadow-sm flex justify-center items-center gap-1 text-xs">
+                      <Icon name="edit-3" size={14} /> 手動紀錄
+                    </button>
+                    <button onClick={() => setShowTextModal(true)} className="flex-1 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-bold shadow-sm flex justify-center items-center gap-1 text-xs">
+                      <Icon name="sparkles" size={14} /> AI 文字快記
+                    </button>
+                  </div>
+
+                  <div onClick={generateAdvice} className="bg-amber-50 p-3 rounded-xl mt-3 cursor-pointer border border-amber-100">
+                    <div className="flex items-center gap-1 mb-1">
+                      <Icon name="activity" className="text-amber-600" size={14} />
+                      <span className="text-xs font-bold text-amber-800">AI 綜合今日健康指南 (點擊生成)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">{isGeneratingAdvice ? "正在全面分析數據中..." : (aiAdvice || "點擊此處，由大模型整合您的飲食與作息，給予專屬改善建議。")}</p>
+                  </div>
+                </div>
+
+                {/* 飲食列表 */}
+                <div className="space-y-2">
+                  <p className="text-xs font-bold text-slate-400 px-1">今日飲食明細</p>
+                  {dailyLog.filter(i => i.date === selectedDate).map(item => (
+                    <div key={item.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] bg-emerald-50 text-[#4A7C59] px-2 py-0.5 rounded font-black">{MEAL_TYPES.find(m => m.id === item.mealType)?.label || "點心"}</span>
+                          <h4 className="font-bold text-slate-800">{item.foodName}</h4>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{item.time} • {item.weight_g}g • <span className="text-[#4A7C59] font-bold">{item.calories} kcal</span></p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => { setPendingEntry({ ...item }); setDietModalMode("edit"); setShowDietModal(true); }} className="px-2 py-1 bg-slate-100 rounded text-xs text-slate-500 font-bold">修改</button>
+                        <button onClick={() => confirm("確定刪除此筆飲食？") && setDailyLog(prev => prev.filter(i => i.id !== item.id))} className="px-2 py-1 bg-red-50 text-red-500 rounded text-xs font-bold">刪除</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ==================== 頁籤 4: 成員與健康管理 ==================== */}
+            {activeTab === "profile" && (
+              <div className="space-y-4 animate-fade-in">
+                <div className="bg-white rounded-2xl border p-4 shadow-sm">
+                  <div className="bg-[#f7f8ef] rounded-2xl p-4 border border-[#eef0dd] text-center">
+                    <p className="text-xs font-black text-slate-400">活動代謝基準與個人數值</p>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="border-r border-[#e7ead0]">
+                        <p className="text-[10px] text-slate-400">基礎代謝 (BMR)</p>
+                        <p className="text-xl font-black text-[#4A7C59]">{bmr} kcal</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400">每日總消耗 (TDEE)</p>
+                        <p className="text-xl font-black text-[#e6a23a]">{tdee} kcal</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border space-y-4 shadow-sm">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-sm font-black text-slate-700">⚙️ 個人檔案與健康數據維護</h3>
+                    <button onClick={() => setIsEditingProfile(!isEditingProfile)} className="text-xs text-[#4A7C59] font-bold underline">{isEditingProfile ? "取消" : "修改數值"}</button>
+                  </div>
+
+                  <div className={`space-y-3 ${!isEditingProfile ? "opacity-75 pointer-events-none" : ""}`}>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div><label className="text-[11px] font-bold text-slate-400">身高(cm)</label><input type="number" className="w-full p-2 bg-[#fdfcf0] rounded-xl font-bold border" value={tempProfile.height} onChange={e => setTempProfile({ ...tempProfile, height: e.target.value })} /></div>
+                      <div><label className="text-[11px] font-bold text-slate-400">體重(kg)</label><input type="number" className="w-full p-2 bg-[#fdfcf0] rounded-xl font-bold border" value={tempProfile.weight} onChange={e => setTempProfile({ ...tempProfile, weight: e.target.value })} /></div>
+                      <div><label className="text-[11px] font-bold text-slate-400">年齡</label><input type="number" className="w-full p-2 bg-[#fdfcf0] rounded-xl font-bold border" value={tempProfile.age} onChange={e => setTempProfile({ ...tempProfile, age: e.target.value })} /></div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-400">日常活動量級</label>
+                      <select className="w-full p-2 bg-[#fdfcf0] rounded-xl font-bold border text-xs" value={tempProfile.activity} onChange={e => setTempProfile({ ...tempProfile, activity: e.target.value })}>
+                        {ACTIVITY_LEVELS.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="pt-2 border-t border-dashed">
+                      <p className="text-xs font-black text-orange-700 mb-2">🩸 基本醫學健康指標紀錄</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {HEALTH_METRICS_CONFIG.map(m => {
+                          const abnormal = isAbnormal(m.key, tempProfile.healthData?.[m.key]);
+                          return (
+                            <div key={m.key}>
+                              <label className="text-[10px] font-bold text-slate-400 block mb-0.5">{m.label}</label>
+                              <div className="relative">
+                                <input type="number" className={`w-full p-2 rounded-xl text-xs health-input ${abnormal ? 'warning' : ''}`} value={tempProfile.healthData?.[m.key] || ""} onChange={e => setTempProfile({ ...tempProfile, healthData: { ...(tempProfile.healthData || {}), [m.key]: e.target.value } })} />
+                                <span className="absolute right-2 top-2 text-[8px] text-slate-400">{m.unit}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isEditingProfile && (
+                    <button onClick={() => { setUserProfile(tempProfile); setIsEditingProfile(false); }} className="w-full py-2.5 bg-[#4A7C59] text-white font-bold rounded-xl text-xs shadow-md">儲存最新健康設定</button>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </main>
+
+          {/* ==========================================================
+              底部全域浮動導航列 (4 頁籤 + 中央 AI 拍照快記鍵)
+              ========================================================== */}
+          <div className="floating-nav-wrap">
+            <div className="floating-nav">
+              <div onClick={() => setActiveTab("list")} className={`nav-item ${activeTab === "list" ? "nav-active" : "nav-muted"}`}>
+                <Icon name="layout-list" size={20} /><span className="text-[10px]">清單</span>
+              </div>
+              <div onClick={() => setActiveTab("analytics")} className={`nav-item ${activeTab === "analytics" ? "nav-active" : "nav-muted"}`}>
+                <Icon name="pie-chart" size={20} /><span className="text-[10px]">統計</span>
+              </div>
+              
+              {/* 中央大按鈕：直接觸發手機相機拍照 */}
+              <div>
+                <label className="floating-center-btn active:scale-95 transition-transform cursor-pointer">
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCapture} disabled={isAnalyzing} />
+                  {isAnalyzing ? <Icon name="loader" className="animate-spin text-white" size={26} /> : <Icon name="camera" className="text-white" size={26} />}
+                </label>
+              </div>
+
+              <div onClick={() => setActiveTab("diet")} className={`nav-item ${activeTab === "diet" ? "nav-active" : "nav-muted"}`}>
+                <Icon name="utensils" size={20} /><span className="text-[10px]">飲食</span>
+              </div>
+              <div onClick={() => setActiveTab("profile")} className={`nav-item ${activeTab === "profile" ? "nav-active" : "nav-muted"}`}>
+                <Icon name="user" size={20} /><span className="text-[10px]">成員</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ==========================================================
+              彈窗區塊 (Modals)
+              ========================================================== */}
+          
+          {/* 彈窗：新增/修改 待辦事項 */}
+          {showAddModal && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-[#FDFCF0] w-full max-w-sm rounded-3xl p-5 shadow-xl border border-[#E9EED9]">
+                <h3 className="font-black text-slate-800 mb-3 flex items-center gap-1"><Icon name="plus-circle" /> 記錄新事項</h3>
+                <form onSubmit={handleTaskSubmit} className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">事項名稱</label>
+                    <input className="w-full border rounded-xl p-2 font-bold" value={taskText} onChange={e => setTaskText(e.target.value)} placeholder="做些什麼..." required />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">分類</label>
+                      <select className="w-full border rounded-xl p-2 font-bold" value={category} onChange={e => setCategory(e.target.value)}>
+                        {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">起始日期</label>
+                      <input type="date" className="w-full border rounded-xl p-2 font-bold" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">細節備註</label>
+                    <textarea className="w-full border rounded-xl p-2 font-bold h-20" value={note} onChange={e => setNote(e.target.value)} placeholder="輸入備註說明..." />
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 py-2 bg-slate-200 rounded-xl font-bold">取消</button>
+                    <button type="submit" className="flex-1 py-2 bg-[#4A7C59] text-white rounded-xl font-bold">儲存</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* 彈窗：費用明細維護 */}
+          {expenseModalTask && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setExpenseModalTask(null)}>
+              <div className="bg-white w-full max-w-sm p-5 rounded-3xl shadow-xl border" onClick={e => e.stopPropagation()}>
+                <h3 className="font-black text-slate-800 mb-3 flex items-center gap-1 text-sm">💰 記帳明細維護</h3>
+                <div className="max-h-52 overflow-y-auto space-y-2 mb-3 p-1">
+                  {modalExpenses.map((ex, i) => (
+                    <div key={i} className="p-3 bg-slate-50 rounded-xl space-y-2 relative border text-[11px]">
+                      <div className="grid grid-cols-2 gap-1">
+                        <input type="date" value={ex.date} onChange={e => { const n = [...modalExpenses]; n[i].date = e.target.value; setModalExpenses(n); }} className="p-1 border rounded" />
+                        <input type="number" placeholder="金額" value={ex.amount} onChange={e => { const n = [...modalExpenses]; n[i].amount = e.target.value; setModalExpenses(n); }} className="p-1 border rounded font-bold text-indigo-600" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-1">
+                        <select value={ex.item} onChange={e => { const n = [...modalExpenses]; n[i].item = e.target.value; setModalExpenses(n); }} className="p-1 border rounded">
+                          <option value="">選項目...</option>
+                          {expenseItems.map(opt => <option key={opt.id} value={opt.name}>{opt.name}</option>)}
+                        </select>
+                        <input placeholder="備註" value={ex.desc} onChange={e => { const n = [...modalExpenses]; n[i].desc = e.target.value; setModalExpenses(n); }} className="p-1 border rounded" />
+                      </div>
+                      <button onClick={() => setModalExpenses(modalExpenses.filter((_, idx) => idx !== i))} className="absolute -top-1 -right-1 bg-white text-rose-500 rounded-full border shadow-sm p-0.5">✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setModalExpenses([{ date: dateToISO(new Date()), item: '', desc: '', amount: '' }, ...modalExpenses])} className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold border text-xs">+ 新增單筆</button>
+                  <button onClick={async () => { await db.collection('artifacts').doc(appId).collection('public').doc('data').collection('tasks').doc(expenseModalTask.id).update({ expenses: modalExpenses.filter(e => e.amount) }); setExpenseModalTask(null); }} className="flex-1 py-2 bg-indigo-600 text-white rounded-xl font-bold text-xs shadow-sm">儲存內容</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 彈窗：飲食卡路里編輯與確認 */}
+          {showDietModal && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-[#FDFCF0] w-full max-w-sm rounded-3xl p-5 shadow-xl border border-[#E9EED9]">
+                <h3 className="font-black text-slate-800 mb-3 text-base">🥞 飲食紀錄確認</h3>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">食物名稱</label>
+                    <input className="w-full border rounded-xl p-2 font-bold text-sm bg-white" value={pendingEntry?.foodName || ""} onChange={e => setPendingEntry({ ...pendingEntry, foodName: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">估計熱量 (kcal)</label>
+                      <input type="number" className="w-full border rounded-xl p-2 font-black text-emerald-600 bg-white" value={pendingEntry?.calories || 0} onChange={e => setPendingEntry({ ...pendingEntry, calories: parseInt(e.target.value) || 0 })} />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1">重量 (g)</label>
+                      <input type="number" className="w-full border rounded-xl p-2 font-bold bg-white" value={pendingEntry?.weight_g || 0} onChange={e => setPendingEntry({ ...pendingEntry, weight_g: parseInt(e.target.value) || 0 })} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="date" className="p-2 border rounded-xl font-bold bg-white text-xs" value={pendingEntry?.date || selectedDate} onChange={e => setPendingEntry({ ...pendingEntry, date: e.target.value })} />
+                    <input type="time" className="p-2 border rounded-xl font-bold bg-white text-xs" value={pendingEntry?.time || "12:00"} onChange={e => setPendingEntry({ ...pendingEntry, time: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 mb-1">分類餐別</label>
+                    <div className="grid grid-cols-4 gap-1">
+                      {MEAL_TYPES.map(m => (
+                        <button key={m.id} type="button" onClick={() => setPendingEntry({ ...pendingEntry, mealType: m.id })} className={`py-1.5 rounded-lg border text-[10px] font-bold ${pendingEntry?.mealType === m.id ? 'meal-btn-active' : 'meal-btn-inactive'}`}>{m.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {pendingEntry?.healthAdvice && (
+                    <div className="bg-orange-50 text-orange-800 border border-orange-100 p-2.5 rounded-xl font-medium text-[11px] leading-relaxed">💡 AI 智能簡評: {pendingEntry.healthAdvice}</div>
+                  )}
+                  <div className="flex gap-2 pt-2">
+                    <button onClick={() => setShowDietModal(false)} className="flex-1 py-2 bg-slate-200 rounded-xl font-bold">取消</button>
+                    <button onClick={saveDietEntry} className="flex-1 py-2 bg-[#4A7C59] text-white rounded-xl font-bold">儲存紀錄</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 彈窗：AI 文字飲食快記輸入 */}
+          {showTextModal && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-xl border">
+                <h3 className="font-black text-indigo-600 mb-2 flex items-center gap-1 text-sm"><Icon name="sparkles" /> AI 飲食快速輸入</h3>
+                <textarea className="w-full p-3 bg-slate-50 border rounded-xl text-xs font-bold h-24 mb-3" placeholder="請描述您的飲食，例如：中午吃了排骨便當配一杯半糖紅茶..." value={textInput} onChange={e => setTextInput(e.target.value)} />
+                <div className="flex gap-2">
+                  <button onClick={() => setShowTextModal(false)} className="flex-1 py-2 bg-slate-100 text-slate-400 rounded-xl font-bold text-xs">取消</button>
+                  <button onClick={handleTextAnalysis} disabled={isAnalyzing} className="flex-1 py-2 bg-indigo-600 text-white rounded-xl font-bold flex justify-center items-center gap-1 text-xs shadow-md">
+                    {isAnalyzing ? <Icon name="loader" className="animate-spin" /> : <Icon name="send" />} 解析飲食
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
